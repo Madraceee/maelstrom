@@ -1,9 +1,10 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
+	"context"
+	"errors"
 	"log"
+	"math"
 	"sync"
 	"time"
 
@@ -26,88 +27,31 @@ func NewBroadcaster(node *maelstrom.Node, store *store) *broadcaster {
 	}
 }
 
-func (b *broadcaster) Send(dst string) {
-	b.mu.RLock()
-	isConnPresent := b.dstConnMap[dst]
-	b.mu.RUnlock()
-
-	if isConnPresent == true {
-		return
-	}
-
-	b.mu.Lock()
-	b.dstConnMap[dst] = true
-	b.mu.Unlock()
+func (b *broadcaster) Send(value int, dst string) {
 	go func() {
-		err := b.broadcastValues(dst)
+		nodeId := b.node.ID()
 		backoff := 100
-		for err != nil {
-			time.Sleep(time.Millisecond * time.Duration(backoff))
-			log.Printf("Trying to send from %s to %s", b.node.ID(), dst)
-			err = b.broadcastValues(dst)
-			backoff = backoff * 2
-		}
+		contextTime := 500
+		log.Printf("Sending from %s to %s value %d", nodeId, dst, value)
+		ctx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*time.Duration(contextTime))
+		_, err := b.node.SyncRPC(ctx, dst, map[string]interface{}{"type": "broadcast", "message": value})
+		cancel()
 
-		b.mu.Lock()
-		b.dstConnMap[dst] = false
-		b.mu.Unlock()
+		count := 1
+		for maelstrom.ErrorCode(err) == maelstrom.Timeout || errors.Is(err, context.DeadlineExceeded) {
+			waitTime := backoff * pow(2, count)
+			time.Sleep(time.Millisecond * time.Duration(waitTime))
+			log.Printf("Trying to send from %s to %s value %d", nodeId, dst, value)
+
+			ctx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*time.Duration(contextTime))
+			_, err = b.node.SyncRPC(ctx, dst, map[string]interface{}{"type": "broadcast", "message": value})
+			cancel()
+			count++
+		}
+		log.Printf("Sent from %s to %s of value %d with count %d", nodeId, dst, value, count)
 	}()
 }
 
-func (b *broadcaster) broadcastValues(dst string) error {
-	nodeId := b.node.ID()
-	err := b.node.RPC(dst, map[string]interface{}{"type": "read"}, func(msg maelstrom.Message) error {
-		var body map[string]any
-		if err := json.Unmarshal(msg.Body, &body); err != nil {
-			return fmt.Errorf("BROADCAST: error while reading 'read' from node %s: %v", dst, err)
-		}
-
-		recvValues, ok := body["messages"].([]interface{})
-		if !ok {
-			return fmt.Errorf("BROADCAST: error while getting messages from 'read' from node %s", dst)
-		}
-
-		recvIntValues := make([]int, len(recvValues))
-		for i, val := range recvValues {
-			recvIntValues[i] = int(val.(float64))
-		}
-
-		values := b.store.Get()
-		missingValues := GetMissingValues(values, recvIntValues)
-
-		for _, val := range missingValues {
-			err := b.node.RPC(dst, map[string]interface{}{"type": "broadcast", "message": val}, func(msg maelstrom.Message) error {
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("BROADCAST: error while sending broadcast to %s: %s", dst, err)
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("BROADCAST: error id %s sending read message to %s : %s", nodeId, dst, err.Error())
-	}
-
-	return nil
-}
-
-func GetMissingValues(src, dest []int) []int {
-	missingValues := make([]int, 0)
-	for _, value1 := range src {
-		isPresent := false
-		for _, value2 := range dest {
-			if value1 == value2 {
-				isPresent = true
-			}
-		}
-
-		if isPresent == false {
-			missingValues = append(missingValues, value1)
-		}
-	}
-
-	return missingValues
+func pow(x, y int) int {
+	return int(math.Pow(float64(x), float64(y)))
 }

@@ -106,7 +106,7 @@ func main() {
 			if connctedNode == msg.Src {
 				continue
 			}
-			broadcaster.Send(connctedNode)
+			broadcaster.Send(int(value), connctedNode)
 		}
 		return node.Reply(msg, map[string]interface{}{"type": "broadcast_ok"})
 	})
