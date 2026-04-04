@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -55,41 +54,6 @@ func (s *store) Get() []int {
 	return storeCopy
 }
 
-func BroadCastValues(node *maelstrom.Node, store *store, dst string, msg maelstrom.Message) error {
-	var body map[string]any
-	if err := json.Unmarshal(msg.Body, &body); err != nil {
-		return fmt.Errorf("BROADCAST: error while reading 'read' from node %s: %v", dst, err)
-	}
-
-	recvValues, ok := body["messages"].([]interface{})
-	if !ok {
-		return fmt.Errorf("BROADCAST: error while getting messages from 'read' from node %s", dst)
-	}
-
-	recvIntValues := make([]int, len(recvValues))
-	for i, val := range recvValues {
-		recvIntValues[i] = int(val.(float64))
-	}
-
-	values := store.Get()
-	if len(values) == len(recvIntValues) {
-		return nil
-	}
-	missingValues := GetMissingValues(values, recvIntValues)
-
-	for _, val := range missingValues {
-		err := node.RPC(dst, map[string]interface{}{"type": "broadcast", "message": val}, func(msg maelstrom.Message) error {
-			log.Printf("Recevied message id %s from %s for val %v", node.ID(), dst, val)
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("BROADCAST: error while sending broadcast to %s: %s", dst, err)
-		}
-	}
-
-	return nil
-}
-
 func main() {
 	node := maelstrom.NewNode()
 	topology := make(map[string][]string)
@@ -105,6 +69,7 @@ func main() {
 		store: make([]int, 0),
 		cache: make(map[int]interface{}),
 	}
+	broadcaster := NewBroadcaster(node, store)
 
 	node.Handle("echo", func(msg maelstrom.Message) error {
 		body := make(map[string]interface{})
@@ -141,18 +106,7 @@ func main() {
 			if connctedNode == msg.Dest {
 				continue
 			}
-
-			go func() error {
-				msg, err := node.SyncRPC(context.TODO(), connctedNode, map[string]interface{}{"type": "read"})
-				for err != nil {
-					return fmt.Errorf("BROADCAST: error id %s sending read message to %s : %s", nodeId, connctedNode, err.Error())
-				}
-
-				if err := BroadCastValues(node, store, connctedNode, msg); err != nil {
-					return fmt.Errorf("BROADCAST: %s", err)
-				}
-				return nil
-			}()
+			broadcaster.Send(connctedNode)
 		}
 		return node.Reply(msg, map[string]interface{}{"type": "broadcast_ok"})
 	})
@@ -186,22 +140,4 @@ func main() {
 	if err := node.Run(); err != nil {
 		log.Fatal(err)
 	}
-}
-
-func GetMissingValues(src, dest []int) []int {
-	missingValues := make([]int, 0)
-	for _, value1 := range src {
-		isPresent := false
-		for _, value2 := range dest {
-			if value1 == value2 {
-				isPresent = true
-			}
-		}
-
-		if isPresent == false {
-			missingValues = append(missingValues, value1)
-		}
-	}
-
-	return missingValues
 }
