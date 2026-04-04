@@ -18,7 +18,7 @@ type generator struct {
 
 type store struct {
 	mu    sync.RWMutex
-	cache map[int]interface{}
+	cache map[int]bool
 	store []int
 }
 
@@ -39,18 +39,19 @@ func (s *store) Store(value int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.cache[value]; ok {
+	if isPresent := s.cache[value]; isPresent {
 		return
 	}
 	s.store = append(s.store, value)
-	s.cache[value] = struct{}{}
+	s.cache[value] = true
 }
 
 func (s *store) Get() []int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	storeCopy := s.store[:]
+	storeCopy := make([]int, len(s.store))
+	copy(storeCopy, s.store)
 	return storeCopy
 }
 
@@ -67,7 +68,7 @@ func main() {
 	store := &store{
 		mu:    sync.RWMutex{},
 		store: make([]int, 0),
-		cache: make(map[int]interface{}),
+		cache: make(map[int]bool),
 	}
 	broadcaster := NewBroadcaster(node, store)
 
@@ -101,11 +102,7 @@ func main() {
 		store.Store(int(value))
 
 		nodeId := node.ID()
-
 		for _, connctedNode := range topology[nodeId] {
-			if connctedNode == msg.Dest {
-				continue
-			}
 			broadcaster.Send(connctedNode)
 		}
 		return node.Reply(msg, map[string]interface{}{"type": "broadcast_ok"})

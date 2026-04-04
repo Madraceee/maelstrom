@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -32,17 +31,21 @@ func (b *broadcaster) Send(dst string) {
 	isConnPresent := b.dstConnMap[dst]
 	b.mu.RUnlock()
 
-	if isConnPresent {
+	if isConnPresent == true {
 		return
 	}
 
+	b.mu.Lock()
 	b.dstConnMap[dst] = true
+	b.mu.Unlock()
 	go func() {
-		err := b.broadcastValues(context.TODO(), dst)
-		backoff := 10
+		log.Printf("Sending from %s to %s", b.node.ID(), dst)
+		err := b.broadcastValues(dst)
+		backoff := 1
 		for err != nil {
-			time.Sleep(time.Millisecond * time.Duration(backoff))
-			err = b.broadcastValues(context.TODO(), dst)
+			time.Sleep(time.Second * time.Duration(backoff))
+			log.Printf("Trying to send from %s to %s", b.node.ID(), dst)
+			err = b.broadcastValues(dst)
 			backoff = backoff * 2
 		}
 
@@ -52,42 +55,41 @@ func (b *broadcaster) Send(dst string) {
 	}()
 }
 
-func (b *broadcaster) broadcastValues(ctx context.Context, dst string) error {
+func (b *broadcaster) broadcastValues(dst string) error {
 	nodeId := b.node.ID()
-	msg, err := b.node.SyncRPC(ctx, dst, map[string]interface{}{"type": "read"})
-	for err != nil {
-		return fmt.Errorf("BROADCAST: error id %s sending read message to %s : %s", nodeId, dst, err.Error())
-	}
-
-	var body map[string]any
-	if err := json.Unmarshal(msg.Body, &body); err != nil {
-		return fmt.Errorf("BROADCAST: error while reading 'read' from node %s: %v", dst, err)
-	}
-
-	recvValues, ok := body["messages"].([]interface{})
-	if !ok {
-		return fmt.Errorf("BROADCAST: error while getting messages from 'read' from node %s", dst)
-	}
-
-	recvIntValues := make([]int, len(recvValues))
-	for i, val := range recvValues {
-		recvIntValues[i] = int(val.(float64))
-	}
-
-	values := b.store.Get()
-	if len(values) == len(recvIntValues) {
-		return nil
-	}
-	missingValues := GetMissingValues(values, recvIntValues)
-
-	for _, val := range missingValues {
-		err := b.node.RPC(dst, map[string]interface{}{"type": "broadcast", "message": val}, func(msg maelstrom.Message) error {
-			log.Printf("Recevied message id %s from %s for val %v", nodeId, dst, val)
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("BROADCAST: error while sending broadcast to %s: %s", dst, err)
+	err := b.node.RPC(dst, map[string]interface{}{"type": "read"}, func(msg maelstrom.Message) error {
+		var body map[string]any
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return fmt.Errorf("BROADCAST: error while reading 'read' from node %s: %v", dst, err)
 		}
+
+		recvValues, ok := body["messages"].([]interface{})
+		if !ok {
+			return fmt.Errorf("BROADCAST: error while getting messages from 'read' from node %s", dst)
+		}
+
+		recvIntValues := make([]int, len(recvValues))
+		for i, val := range recvValues {
+			recvIntValues[i] = int(val.(float64))
+		}
+
+		values := b.store.Get()
+		missingValues := GetMissingValues(values, recvIntValues)
+
+		for _, val := range missingValues {
+			err := b.node.RPC(dst, map[string]interface{}{"type": "broadcast", "message": val}, func(msg maelstrom.Message) error {
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("BROADCAST: error while sending broadcast to %s: %s", dst, err)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("BROADCAST: error id %s sending read message to %s : %s", nodeId, dst, err.Error())
 	}
 
 	return nil
