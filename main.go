@@ -103,6 +103,9 @@ func main() {
 
 		nodeId := node.ID()
 		for _, connctedNode := range topology[nodeId] {
+			if connctedNode == msg.Src {
+				continue
+			}
 			broadcaster.Send(connctedNode)
 		}
 		return node.Reply(msg, map[string]interface{}{"type": "broadcast_ok"})

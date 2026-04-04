@@ -39,11 +39,10 @@ func (b *broadcaster) Send(dst string) {
 	b.dstConnMap[dst] = true
 	b.mu.Unlock()
 	go func() {
-		log.Printf("Sending from %s to %s", b.node.ID(), dst)
 		err := b.broadcastValues(dst)
-		backoff := 1
+		backoff := 100
 		for err != nil {
-			time.Sleep(time.Second * time.Duration(backoff))
+			time.Sleep(time.Millisecond * time.Duration(backoff))
 			log.Printf("Trying to send from %s to %s", b.node.ID(), dst)
 			err = b.broadcastValues(dst)
 			backoff = backoff * 2
