@@ -42,7 +42,7 @@ func (b *broadcaster) Send(dst string, values ...int) {
 		b.isWorking[dst] = true
 		go func() {
 			count := 0
-			waitTime := 10
+			waitTime := 500
 			for {
 				time.Sleep(time.Millisecond * time.Duration(waitTime*pow(2, count)))
 				contextTime := 1000
