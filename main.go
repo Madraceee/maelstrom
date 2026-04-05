@@ -46,17 +46,20 @@ func (s *store) Store(value int) {
 	s.cache[value] = true
 }
 
-func (s *store) StoreMultiple(values []int) {
+func (s *store) StoreMultiple(values []int) []int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	newValues := make([]int, 0)
 	for _, value := range values {
 		if isPresent := s.cache[value]; isPresent {
 			continue
 		}
 		s.store = append(s.store, value)
 		s.cache[value] = true
+		newValues = append(newValues, value)
 	}
+	return newValues
 }
 
 func (s *store) Get() []int {
@@ -139,7 +142,7 @@ func main() {
 		for i, value := range values {
 			intValues[i] = int(value.(float64))
 		}
-		store.StoreMultiple(intValues)
+		intValues = store.StoreMultiple(intValues)
 
 		nodeId := node.ID()
 		for _, connctedNode := range topology[nodeId] {

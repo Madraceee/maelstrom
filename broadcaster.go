@@ -13,6 +13,7 @@ import (
 type broadcaster struct {
 	mu         *sync.RWMutex
 	dstConnMap map[string][]int
+	isWorking  map[string]bool
 	node       *maelstrom.Node
 	store      *store
 }
@@ -21,6 +22,7 @@ func NewBroadcaster(node *maelstrom.Node, store *store) *broadcaster {
 	return &broadcaster{
 		mu:         &sync.RWMutex{},
 		dstConnMap: make(map[string][]int),
+		isWorking:  make(map[string]bool),
 		node:       node,
 		store:      store,
 	}
@@ -29,14 +31,19 @@ func NewBroadcaster(node *maelstrom.Node, store *store) *broadcaster {
 func (b *broadcaster) Send(dst string, values ...int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	_, ok := b.dstConnMap[dst]
-
-	if !ok {
+	if _, ok := b.dstConnMap[dst]; !ok {
 		b.dstConnMap[dst] = make([]int, 0)
+	}
+
+	b.dstConnMap[dst] = append(b.dstConnMap[dst], values...)
+	isWorking := b.isWorking[dst]
+
+	if !isWorking {
+		b.isWorking[dst] = true
 		go func() {
 			count := 0
 			for {
-				waitTime := 100
+				waitTime := 1
 				time.Sleep(time.Millisecond * time.Duration(waitTime*pow(2, count)))
 
 				contextTime := 1000
@@ -53,14 +60,14 @@ func (b *broadcaster) Send(dst string, values ...int) {
 				}
 
 				b.mu.Lock()
-				delete(b.dstConnMap, dst)
+				b.dstConnMap[dst] = b.dstConnMap[dst][len(values):]
+				b.isWorking[dst] = false
 				b.mu.Unlock()
 				return
 			}
 		}()
 	}
 
-	b.dstConnMap[dst] = append(b.dstConnMap[dst], values...)
 }
 
 func pow(x, y int) int {
