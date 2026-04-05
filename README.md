@@ -4,7 +4,7 @@ Solution for [Fly.io](https://fly.io/dist-sys/) distributed systems challenges.
 
 ## Steps
 
-Install Maelstrom
+Install Maelstrom from Jespin
 ```
 wget https://github.com/jepsen-io/maelstrom/releases/download/v0.2.3/maelstrom.tar.bz2
 bzip2 -d  maelstrom.tar.bz2
