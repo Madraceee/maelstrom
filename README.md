@@ -2,7 +2,7 @@
 
 Solution for [Fly.io](https://fly.io/dist-sys/) distributed systems challenges.
 
-Steps
+## Steps
 
 Install Maelstrom
 ```
