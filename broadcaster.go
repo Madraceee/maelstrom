@@ -30,14 +30,13 @@ func NewBroadcaster(node *maelstrom.Node, store *store) *broadcaster {
 func (b *broadcaster) Send(value int, dst string) {
 	go func() {
 		nodeId := b.node.ID()
-		backoff := 100
-		contextTime := 500
-		log.Printf("Sending from %s to %s value %d", nodeId, dst, value)
+		contextTime := 1000
 		ctx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*time.Duration(contextTime))
 		_, err := b.node.SyncRPC(ctx, dst, map[string]interface{}{"type": "broadcast", "message": value})
 		cancel()
 
 		count := 1
+		backoff := 100
 		for maelstrom.ErrorCode(err) == maelstrom.Timeout || errors.Is(err, context.DeadlineExceeded) {
 			waitTime := backoff * pow(2, count)
 			time.Sleep(time.Millisecond * time.Duration(waitTime))
@@ -48,7 +47,6 @@ func (b *broadcaster) Send(value int, dst string) {
 			cancel()
 			count++
 		}
-		log.Printf("Sent from %s to %s of value %d with count %d", nodeId, dst, value, count)
 	}()
 }
 
