@@ -46,6 +46,19 @@ func (s *store) Store(value int) {
 	s.cache[value] = true
 }
 
+func (s *store) StoreMultiple(values []int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, value := range values {
+		if isPresent := s.cache[value]; isPresent {
+			continue
+		}
+		s.store = append(s.store, value)
+		s.cache[value] = true
+	}
+}
+
 func (s *store) Get() []int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -106,7 +119,34 @@ func main() {
 			if connctedNode == msg.Src {
 				continue
 			}
-			broadcaster.Send(int(value), connctedNode)
+			broadcaster.Send(connctedNode, int(value))
+		}
+		return node.Reply(msg, map[string]interface{}{"type": "broadcast_ok"})
+	})
+
+	node.Handle("broadcast-group", func(msg maelstrom.Message) error {
+		body := make(map[string]interface{})
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return fmt.Errorf("BROADCAST: Error while decoding json: %s", err)
+		}
+
+		values, ok := body["message"].([]interface{})
+		if !ok {
+			return fmt.Errorf("BROADCAST: Body does not have message")
+		}
+
+		intValues := make([]int, len(values))
+		for i, value := range values {
+			intValues[i] = int(value.(float64))
+		}
+		store.StoreMultiple(intValues)
+
+		nodeId := node.ID()
+		for _, connctedNode := range topology[nodeId] {
+			if connctedNode == msg.Src {
+				continue
+			}
+			broadcaster.Send(connctedNode, intValues...)
 		}
 		return node.Reply(msg, map[string]interface{}{"type": "broadcast_ok"})
 	})
