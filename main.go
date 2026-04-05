@@ -177,6 +177,20 @@ func main() {
 			}
 		}
 
+		noOfNodes := len(topology)
+		keys := make([]string, 0, noOfNodes)
+		pos := -1
+		count := 0
+		for k := range topology {
+			count += 1
+			if k == node.ID() {
+				pos = count
+			}
+			keys = append(keys, k)
+		}
+
+		topology[node.ID()] = keys[max(0, pos-(noOfNodes/6)-1):min(pos+(noOfNodes/6)+1, noOfNodes-1)]
+
 		return node.Reply(msg, map[string]interface{}{"type": "topology_ok"})
 	})
 

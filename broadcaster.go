@@ -42,10 +42,9 @@ func (b *broadcaster) Send(dst string, values ...int) {
 		b.isWorking[dst] = true
 		go func() {
 			count := 0
+			waitTime := 10
 			for {
-				waitTime := 1
 				time.Sleep(time.Millisecond * time.Duration(waitTime*pow(2, count)))
-
 				contextTime := 1000
 				b.mu.RLock()
 				values := b.dstConnMap[dst]
