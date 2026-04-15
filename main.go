@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -86,6 +87,9 @@ func main() {
 		store: make([]int, 0),
 		cache: make(map[int]bool),
 	}
+
+	kv := maelstrom.NewSeqKV(node)
+
 	broadcaster := NewBroadcaster(node, store)
 
 	node.Handle("echo", func(msg maelstrom.Message) error {
@@ -154,9 +158,9 @@ func main() {
 		return node.Reply(msg, map[string]interface{}{"type": "broadcast_ok"})
 	})
 
-	node.Handle("read", func(msg maelstrom.Message) error {
-		return node.Reply(msg, map[string]interface{}{"type": "read_ok", "messages": store.Get()})
-	})
+	// node.Handle("read", func(msg maelstrom.Message) error {
+	// 	return node.Reply(msg, map[string]interface{}{"type": "read_ok", "messages": store.Get()})
+	// })
 
 	node.Handle("topology", func(msg maelstrom.Message) error {
 		body := make(map[string]interface{})
@@ -192,6 +196,69 @@ func main() {
 		topology[node.ID()] = keys[max(0, pos-(noOfNodes/6)-1):min(pos+(noOfNodes/6)+1, noOfNodes-1)]
 
 		return node.Reply(msg, map[string]interface{}{"type": "topology_ok"})
+	})
+
+	node.Handle("add", func(msg maelstrom.Message) error {
+		body := make(map[string]interface{})
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return fmt.Errorf("Add: Error while decoding json: %s", err)
+		}
+
+		delta, ok := body["delta"].(float64)
+		if !ok {
+			return fmt.Errorf("add: Body does not have topology")
+		}
+
+		oldVal, err := kv.ReadInt(context.TODO(), node.ID())
+		if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
+			oldVal = 0
+		}
+
+		newVal := oldVal + int(delta)
+		kv.Write(context.TODO(), node.ID(), newVal)
+
+		return node.Reply(msg, map[string]interface{}{"type": "add_ok"})
+	})
+
+	node.Handle("read", func(msg maelstrom.Message) error {
+		sum, err := kv.ReadInt(context.TODO(), node.ID())
+		if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
+			sum = 0
+		}
+
+		for _, id := range node.NodeIDs() {
+			if id == node.ID() {
+				continue
+			}
+
+			msg, err := node.SyncRPC(context.Background(), id, map[string]interface{}{"type": "get_counter"})
+			if err != nil {
+				log.Printf("node %s not working", id)
+				continue
+			}
+
+			body := make(map[string]interface{})
+			if err := json.Unmarshal(msg.Body, &body); err != nil {
+				return fmt.Errorf("Add: Error while decoding json: %s", err)
+			}
+
+			val, ok := body["value"].(float64)
+			if !ok {
+				return fmt.Errorf("add: Body does not have topology")
+			}
+
+			sum += int(val)
+		}
+		return node.Reply(msg, map[string]interface{}{"type": "read_ok", "value": sum})
+	})
+
+	node.Handle("get_counter", func(msg maelstrom.Message) error {
+		val, err := kv.ReadInt(context.TODO(), node.ID())
+		if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
+			val = 0
+		}
+
+		return node.Reply(msg, map[string]interface{}{"type": "get_counter_ok", "value": val})
 	})
 
 	if err := node.Run(); err != nil {
