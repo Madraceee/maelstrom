@@ -261,6 +261,95 @@ func main() {
 		return node.Reply(msg, map[string]interface{}{"type": "get_counter_ok", "value": val})
 	})
 
+	// KAFKA
+	type record struct {
+		offset int
+		msg    int
+	}
+	kafka := make(map[string][][2]int)
+
+	node.Handle("send", func(msg maelstrom.Message) error {
+		body := make(map[string]interface{})
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return fmt.Errorf("Send: Error while decoding json: %s", err)
+		}
+
+		key, ok := body["key"].(string)
+		if !ok {
+			return fmt.Errorf("Send: key does not exists")
+		}
+
+		value, ok := body["msg"].(float64)
+		if !ok {
+			return fmt.Errorf("Send: key does not exists")
+		}
+
+		offset := 0
+		if _, ok := kafka[key]; !ok {
+			offset = 1000 * (len(kafka) + 1)
+			rec := [2]int{offset, int(value)}
+			kafka[key] = make([][2]int, 0)
+			kafka[key] = append(kafka[key], rec)
+		} else {
+			offset = kafka[key][len(kafka[key])-1][0] + 1
+			rec := [2]int{offset, int(value)}
+			kafka[key] = append(kafka[key], rec)
+		}
+
+		return node.Reply(msg, map[string]interface{}{"type": "send_ok", "offset": offset})
+	})
+
+	node.Handle("poll", func(msg maelstrom.Message) error {
+		body := make(map[string]interface{})
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return fmt.Errorf("Poll: Error while decoding json: %s", err)
+		}
+
+		msgs := make(map[string][][2]int)
+		log.Printf("Body: %v", body)
+		for k, v := range body["offsets"].(map[string]interface{}) {
+			rcrd := kafka[k]
+			for i, r := range rcrd {
+				if r[0] >= int(v.(float64)) {
+					msgs[k] = rcrd[i:]
+					break
+				}
+			}
+		}
+
+		return node.Reply(msg, map[string]interface{}{"type": "poll_ok", "msgs": msgs})
+	})
+
+	commited_offsets := make(map[string]int)
+	node.Handle("commit_offsets", func(msg maelstrom.Message) error {
+		body := make(map[string]interface{})
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return fmt.Errorf("COMMIT_OFFSETS: Error while decoding json: %s", err)
+		}
+
+		offsets := body["offsets"].(map[string]interface{})
+		for k, v := range offsets {
+			commited_offsets[k] = int(v.(float64))
+		}
+
+		return node.Reply(msg, map[string]interface{}{"type": "commit_offsets_ok"})
+	})
+
+	node.Handle("list_committed_offsets", func(msg maelstrom.Message) error {
+		body := make(map[string]interface{})
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return fmt.Errorf("LIST_COMMITED_OFFSETS: Error while decoding json: %s", err)
+		}
+
+		keys := body["keys"].([]interface{})
+		res := make(map[string]int)
+		for _, key := range keys {
+			res[key.(string)] = commited_offsets[key.(string)]
+		}
+
+		return node.Reply(msg, map[string]interface{}{"type": "list_committed_offsets_ok", "offsets": res})
+	})
+
 	if err := node.Run(); err != nil {
 		log.Fatal(err)
 	}
