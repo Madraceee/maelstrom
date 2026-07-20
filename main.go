@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -266,7 +268,8 @@ func main() {
 		offset int
 		msg    int
 	}
-	kafka := make(map[string][][2]int)
+	linKv := maelstrom.NewLinKV(node)
+	seqKv := maelstrom.NewSeqKV(node)
 
 	node.Handle("send", func(msg maelstrom.Message) error {
 		body := make(map[string]interface{})
@@ -284,43 +287,59 @@ func main() {
 			return fmt.Errorf("Send: key does not exists")
 		}
 
-		offset := 0
-		if _, ok := kafka[key]; !ok {
-			offset = 1000 * (len(kafka) + 1)
-			rec := [2]int{offset, int(value)}
-			kafka[key] = make([][2]int, 0)
-			kafka[key] = append(kafka[key], rec)
-		} else {
-			offset = kafka[key][len(kafka[key])-1][0] + 1
-			rec := [2]int{offset, int(value)}
-			kafka[key] = append(kafka[key], rec)
+		for {
+			offset := 1000
+			body := make(map[int]float64)
+			err := linKv.ReadInto(context.TODO(), key, &body)
+			if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
+				body[offset] = value
+				if err := linKv.CompareAndSwap(context.TODO(), key, body, body, true); err != nil {
+					continue
+				}
+			} else {
+				offset = offset + len(body) + 1
+				newBody := maps.Clone(body)
+
+				newBody[offset] = value
+				if err := linKv.CompareAndSwap(context.TODO(), key, body, newBody, false); err != nil {
+					continue
+				}
+			}
+			return node.Reply(msg, map[string]interface{}{"type": "send_ok", "offset": offset})
 		}
 
-		return node.Reply(msg, map[string]interface{}{"type": "send_ok", "offset": offset})
+		return fmt.Errorf("Send: error")
 	})
 
 	node.Handle("poll", func(msg maelstrom.Message) error {
-		body := make(map[string]interface{})
-		if err := json.Unmarshal(msg.Body, &body); err != nil {
+		input := make(map[string]interface{})
+		if err := json.Unmarshal(msg.Body, &input); err != nil {
 			return fmt.Errorf("Poll: Error while decoding json: %s", err)
 		}
 
 		msgs := make(map[string][][2]int)
-		log.Printf("Body: %v", body)
-		for k, v := range body["offsets"].(map[string]interface{}) {
-			rcrd := kafka[k]
-			for i, r := range rcrd {
-				if r[0] >= int(v.(float64)) {
-					msgs[k] = rcrd[i:]
-					break
+		for key, v := range input["offsets"].(map[string]interface{}) {
+			body := make(map[int]float64)
+			if err := linKv.ReadInto(context.TODO(), key, &body); maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
+				continue
+				// return fmt.Errorf("Poll: Error while getting key %s : %s", key, err)
+			}
+			for offset, val := range body {
+				if offset >= int(v.(float64)) {
+					msgs[key] = append(msgs[key], [2]int{offset, int(val)})
 				}
 			}
+		}
+
+		for _, val := range msgs {
+			slices.SortFunc(val, func(i, j [2]int) int {
+				return i[0] - j[0]
+			})
 		}
 
 		return node.Reply(msg, map[string]interface{}{"type": "poll_ok", "msgs": msgs})
 	})
 
-	commited_offsets := make(map[string]int)
 	node.Handle("commit_offsets", func(msg maelstrom.Message) error {
 		body := make(map[string]interface{})
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
@@ -328,8 +347,22 @@ func main() {
 		}
 
 		offsets := body["offsets"].(map[string]interface{})
-		for k, v := range offsets {
-			commited_offsets[k] = int(v.(float64))
+		for key, offset := range offsets {
+			for {
+				val, err := seqKv.ReadInt(context.TODO(), key+"Commit")
+				if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
+					if err := seqKv.CompareAndSwap(context.TODO(), key+"Commit", val, offset, true); err != nil {
+						continue
+					}
+				} else if err != nil {
+					return fmt.Errorf("commit_offsets: Could not fetch key %s details: %s", key, err)
+				} else {
+					if err := seqKv.CompareAndSwap(context.TODO(), key+"Commit", val, offset, false); err != nil {
+						continue
+					}
+				}
+				break
+			}
 		}
 
 		return node.Reply(msg, map[string]interface{}{"type": "commit_offsets_ok"})
@@ -344,7 +377,11 @@ func main() {
 		keys := body["keys"].([]interface{})
 		res := make(map[string]int)
 		for _, key := range keys {
-			res[key.(string)] = commited_offsets[key.(string)]
+			val, err := seqKv.ReadInt(context.TODO(), key.(string)+"Commit")
+			if err != nil {
+				continue
+			}
+			res[key.(string)] = val
 		}
 
 		return node.Reply(msg, map[string]interface{}{"type": "list_committed_offsets_ok", "offsets": res})
@@ -353,4 +390,8 @@ func main() {
 	if err := node.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func GetData(msg maelstrom.Message, body []byte) error {
+	return msg.Body.UnmarshalJSON(body)
 }
