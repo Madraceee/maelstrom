@@ -2,4 +2,4 @@ module maelstrom
 
 go 1.25.5
 
-require github.com/jepsen-io/maelstrom/demo/go v0.0.0-20251128144731-cb7f07239012 // indirect
+require github.com/jepsen-io/maelstrom/demo/go v0.0.0-20260710121306-480a8197026d

@@ -282,6 +282,20 @@ func main() {
 			return fmt.Errorf("Send: key does not exists")
 		}
 
+		// keyInt, _ := strconv.Atoi(key)
+		// targetNode := node.NodeIDs()[keyInt%len(node.NodeIDs())]
+		// if node.ID() != targetNode {
+		// 	msg, err := node.SyncRPC(context.TODO(), targetNode, body)
+		// 	if err != nil {
+		// 		return fmt.Errorf("Send: Could not get key from targetNode %s: %s", targetNode, err)
+		// 	}
+		//
+		// 	if err := json.Unmarshal(msg.Body, &body); err != nil {
+		// 		return fmt.Errorf("Send: Error while decoding json: %s", err)
+		// 	}
+		// 	return node.Reply(msg, map[string]interface{}{"type": "send_ok", "offset": body["offset"]})
+		// }
+
 		value, ok := body["msg"].(float64)
 		if !ok {
 			return fmt.Errorf("Send: key does not exists")
@@ -385,6 +399,66 @@ func main() {
 		}
 
 		return node.Reply(msg, map[string]interface{}{"type": "list_committed_offsets_ok", "offsets": res})
+	})
+
+	// Transactions
+	txnStore := make(map[int]int)
+	txnStoreMu := &sync.RWMutex{}
+
+	node.Handle("txn", func(msg maelstrom.Message) error {
+		body := make(map[string]interface{})
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return fmt.Errorf("TXN: Error while decoding json: %s", err)
+		}
+
+		txns := body["txn"].([]interface{})
+		for i, t := range txns {
+			txn := t.([]interface{})
+			op := txn[0].(string)
+			key := txn[1].(float64)
+
+			if op == "r" {
+				txnStoreMu.RLock()
+				txn[2] = txnStore[int(key)]
+				txnStoreMu.RUnlock()
+			} else {
+				val := txn[2].(float64)
+				txnStoreMu.Lock()
+				txnStore[int(key)] = int(val)
+				txnStoreMu.Unlock()
+				for _, id := range node.NodeIDs() {
+					if id == node.ID() || id == msg.Src {
+						continue
+					}
+
+					broadcaster.SendTxn(id, txn)
+				}
+			}
+
+			txns[i] = txn
+		}
+
+		return node.Reply(msg, map[string]interface{}{"type": "txn_ok", "txn": txns})
+	})
+
+	node.Handle("txn-write", func(msg maelstrom.Message) error {
+		body := make(map[string]interface{})
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			return fmt.Errorf("TXN: Error while decoding json: %s", err)
+		}
+
+		txns := body["txn"].([]interface{})
+		for i, t := range txns {
+			txn := t.([]interface{})
+			key := txn[1].(float64)
+			val := txn[2].(float64)
+			txnStoreMu.Lock()
+			txnStore[int(key)] = int(val)
+			txnStoreMu.Unlock()
+			txns[i] = txn
+		}
+
+		return node.Reply(msg, map[string]interface{}{"type": "txn_ok", "txn": txns})
 	})
 
 	if err := node.Run(); err != nil {
