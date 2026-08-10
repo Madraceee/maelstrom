@@ -404,6 +404,7 @@ func main() {
 	// Transactions
 	txnStore := make(map[int]int)
 	txnStoreMu := &sync.RWMutex{}
+	txnIsLocked := false
 
 	node.Handle("txn", func(msg maelstrom.Message) error {
 		body := make(map[string]interface{})
@@ -412,31 +413,49 @@ func main() {
 		}
 
 		txns := body["txn"].([]interface{})
+
+		if txnIsLocked == true {
+			return node.Reply(msg, map[string]any{
+				"type": "error",
+				"code": maelstrom.TxnConflict,
+				"text": "txn abort",
+			})
+		}
+
+		txnStoreMu.Lock()
+		txnIsLocked = true
+		writeTxns := make([]interface{},0)
+
 		for i, t := range txns {
 			txn := t.([]interface{})
 			op := txn[0].(string)
 			key := txn[1].(float64)
 
 			if op == "r" {
-				txnStoreMu.RLock()
 				txn[2] = txnStore[int(key)]
-				txnStoreMu.RUnlock()
 			} else {
 				val := txn[2].(float64)
-				txnStoreMu.Lock()
 				txnStore[int(key)] = int(val)
-				txnStoreMu.Unlock()
-				for _, id := range node.NodeIDs() {
-					if id == node.ID() || id == msg.Src {
-						continue
-					}
 
-					broadcaster.SendTxn(id, txn)
-				}
+				writeTxn := make([]interface{}, len(txn))
+				copy(writeTxn, txn)
+				writeTxns = append(writeTxns, writeTxn)
 			}
 
 			txns[i] = txn
 		}
+		
+		for _, id := range node.NodeIDs() {
+			if id == node.ID() || id == msg.Src {
+				continue
+			}
+
+
+			broadcaster.SendTxn(id, writeTxns...)
+		}
+		txnIsLocked = false
+		txnStoreMu.Unlock()
+
 
 		return node.Reply(msg, map[string]interface{}{"type": "txn_ok", "txn": txns})
 	})
@@ -448,15 +467,19 @@ func main() {
 		}
 
 		txns := body["txn"].([]interface{})
+		txnStoreMu.Lock()
 		for i, t := range txns {
 			txn := t.([]interface{})
+			op := txn[0].(string)
+			if op == "r" {
+				continue
+			}
 			key := txn[1].(float64)
 			val := txn[2].(float64)
-			txnStoreMu.Lock()
 			txnStore[int(key)] = int(val)
-			txnStoreMu.Unlock()
 			txns[i] = txn
 		}
+		txnStoreMu.Unlock()
 
 		return node.Reply(msg, map[string]interface{}{"type": "txn_ok", "txn": txns})
 	})
