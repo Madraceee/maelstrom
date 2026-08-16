@@ -5,37 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maelstrom/echo"
+	"maelstrom/generate"
 	"maps"
 	"slices"
 	"sync"
-	"time"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
-
-type generator struct {
-	mu        sync.Mutex
-	count     int
-	timestamp int64
-}
 
 type store struct {
 	mu    sync.RWMutex
 	cache map[int]bool
 	store []int
-}
-
-func (g *generator) GetID(nodeId string) string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	currTimestamp := time.Now().UnixMilli()
-	if currTimestamp >= g.timestamp {
-		g.timestamp = currTimestamp
-	}
-
-	g.count += 1
-	return fmt.Sprintf("%s-%d%d", nodeId, g.timestamp, g.count)
 }
 
 func (s *store) Store(value int) {
@@ -78,12 +60,6 @@ func main() {
 	node := maelstrom.NewNode()
 	topology := make(map[string][]string)
 
-	gen := &generator{
-		mu:        sync.Mutex{},
-		count:     0,
-		timestamp: time.Now().UnixMilli(),
-	}
-
 	store := &store{
 		mu:    sync.RWMutex{},
 		store: make([]int, 0),
@@ -94,22 +70,8 @@ func main() {
 
 	broadcaster := NewBroadcaster(node, store)
 
-	node.Handle("echo", func(msg maelstrom.Message) error {
-		body := make(map[string]interface{})
-		if err := json.Unmarshal(msg.Body, &body); err != nil {
-			return fmt.Errorf("ECHO: Error while decoding json: %s", err)
-		}
-
-		value, ok := body["echo"]
-		if !ok {
-			return fmt.Errorf("ECHO: Body does not have echo")
-		}
-		return node.Reply(msg, map[string]interface{}{"type": "echo_ok", "echo": value})
-	})
-
-	node.Handle("generate", func(msg maelstrom.Message) error {
-		return node.Reply(msg, map[string]interface{}{"type": "generate_ok", "id": gen.GetID(node.ID())})
-	})
+	echo.Handle(node)
+	generate.Handle(node)
 
 	node.Handle("broadcast", func(msg maelstrom.Message) error {
 		body := make(map[string]interface{})
@@ -424,7 +386,7 @@ func main() {
 
 		txnStoreMu.Lock()
 		txnIsLocked = true
-		writeTxns := make([]interface{},0)
+		writeTxns := make([]interface{}, 0)
 
 		for i, t := range txns {
 			txn := t.([]interface{})
@@ -444,18 +406,16 @@ func main() {
 
 			txns[i] = txn
 		}
-		
+
 		for _, id := range node.NodeIDs() {
 			if id == node.ID() || id == msg.Src {
 				continue
 			}
 
-
 			broadcaster.SendTxn(id, writeTxns...)
 		}
 		txnIsLocked = false
 		txnStoreMu.Unlock()
-
 
 		return node.Reply(msg, map[string]interface{}{"type": "txn_ok", "txn": txns})
 	})
