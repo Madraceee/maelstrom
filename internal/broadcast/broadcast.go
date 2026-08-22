@@ -42,16 +42,16 @@ func (b *broadcastOptions) broadcast(msg maelstrom.Message) error {
 	b.store.Store(body.Message)
 	nodeId := b.node.ID()
 	for _, connctedNode := range b.topology[nodeId] {
-		if connctedNode == msg.Src || connctedNode == nodeId{
+		if connctedNode == msg.Src || connctedNode == nodeId {
 			continue
 		}
-		b.broadcaster.Send(connctedNode, body.Message)
+		b.broadcaster.Send(connctedNode, "broadcast-group", body.Message)
 	}
 	return b.node.Reply(msg, reply{Type: "broadcast_ok"})
 }
 
 func (b *broadcastOptions) SetTopology(msg maelstrom.Message) error {
-	body := topologyMsg{} 
+	body := topologyMsg{}
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return fmt.Errorf("TOPOLOGY: Error while decoding json: %s", err)
 	}
@@ -66,19 +66,24 @@ func (b *broadcastOptions) read(msg maelstrom.Message) error {
 }
 
 func (b *broadcastOptions) broadcastGroup(msg maelstrom.Message) error {
-	body := broadcastGrpMsg{} 
+	body := broadcastGrpMsg{}
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return fmt.Errorf("BROADCAST: Error while decoding json: %s", err)
 	}
 
 	body.Message = b.store.StoreMultiple(body.Message)
+	messages := make([]any, len(body.Message))
+	for i, msg := range body.Message{
+		messages[i] = msg
+	}
+
 
 	nodeId := b.node.ID()
 	for _, connctedNode := range b.topology[nodeId] {
 		if connctedNode == msg.Src {
 			continue
 		}
-		b.broadcaster.Send(connctedNode, body.Message...)
+		b.broadcaster.Send(connctedNode, "broadcast-group", messages...)
 	}
 	return b.node.Reply(msg, reply{Type: "boradcast_ok"})
 }

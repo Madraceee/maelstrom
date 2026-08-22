@@ -17,19 +17,15 @@ import (
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-
 func main() {
 	node := maelstrom.NewNode()
-
-
 
 	broadcaster := broadcaster.NewBroadcaster(node)
 
 	echo.Handle(node)
 	generate.Handle(node)
-	// broadcast.Handle(node,broadcaster)
+	// broadcast.Handle(node, broadcaster)
 	counter.Handle(node)
-
 
 	// KAFKA
 	type record struct {
@@ -218,7 +214,7 @@ func main() {
 				continue
 			}
 
-			broadcaster.SendTxn(id, writeTxns...)
+			broadcaster.Send(id, "txn-write", writeTxns...)
 		}
 		txnIsLocked = false
 		txnStoreMu.Unlock()
@@ -253,8 +249,4 @@ func main() {
 	if err := node.Run(); err != nil {
 		log.Fatal(err)
 	}
-}
-
-func GetData(msg maelstrom.Message, body []byte) error {
-	return msg.Body.UnmarshalJSON(body)
 }
