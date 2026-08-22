@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	_ "maelstrom/internal/broadcast"
+	"maelstrom/internal/availability"
+	"maelstrom/internal/broadcast"
 	"maelstrom/internal/broadcaster"
-	"maelstrom/internal/counter"
+	_ "maelstrom/internal/counter"
 	"maelstrom/internal/echo"
 	"maelstrom/internal/generate"
 	"maps"
 	"slices"
-	"sync"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
@@ -24,8 +24,9 @@ func main() {
 
 	echo.Handle(node)
 	generate.Handle(node)
-	// broadcast.Handle(node, broadcaster)
-	counter.Handle(node)
+	broadcast.Handle(node, broadcaster)
+	// counter.Handle(node)
+	availability.Handle(node, broadcaster)
 
 	// KAFKA
 	type record struct {
@@ -163,87 +164,6 @@ func main() {
 		}
 
 		return node.Reply(msg, map[string]interface{}{"type": "list_committed_offsets_ok", "offsets": res})
-	})
-
-	// Transactions
-	txnStore := make(map[int]int)
-	txnStoreMu := &sync.RWMutex{}
-	txnIsLocked := false
-
-	node.Handle("txn", func(msg maelstrom.Message) error {
-		body := make(map[string]interface{})
-		if err := json.Unmarshal(msg.Body, &body); err != nil {
-			return fmt.Errorf("TXN: Error while decoding json: %s", err)
-		}
-
-		txns := body["txn"].([]interface{})
-
-		if txnIsLocked == true {
-			return node.Reply(msg, map[string]any{
-				"type": "error",
-				"code": maelstrom.TxnConflict,
-				"text": "txn abort",
-			})
-		}
-
-		txnStoreMu.Lock()
-		txnIsLocked = true
-		writeTxns := make([]interface{}, 0)
-
-		for i, t := range txns {
-			txn := t.([]interface{})
-			op := txn[0].(string)
-			key := txn[1].(float64)
-
-			if op == "r" {
-				txn[2] = txnStore[int(key)]
-			} else {
-				val := txn[2].(float64)
-				txnStore[int(key)] = int(val)
-
-				writeTxn := make([]interface{}, len(txn))
-				copy(writeTxn, txn)
-				writeTxns = append(writeTxns, writeTxn)
-			}
-
-			txns[i] = txn
-		}
-
-		for _, id := range node.NodeIDs() {
-			if id == node.ID() || id == msg.Src {
-				continue
-			}
-
-			broadcaster.Send(id, "txn-write", writeTxns...)
-		}
-		txnIsLocked = false
-		txnStoreMu.Unlock()
-
-		return node.Reply(msg, map[string]interface{}{"type": "txn_ok", "txn": txns})
-	})
-
-	node.Handle("txn-write", func(msg maelstrom.Message) error {
-		body := make(map[string]interface{})
-		if err := json.Unmarshal(msg.Body, &body); err != nil {
-			return fmt.Errorf("TXN: Error while decoding json: %s", err)
-		}
-
-		txns := body["txn"].([]interface{})
-		txnStoreMu.Lock()
-		for i, t := range txns {
-			txn := t.([]interface{})
-			op := txn[0].(string)
-			if op == "r" {
-				continue
-			}
-			key := txn[1].(float64)
-			val := txn[2].(float64)
-			txnStore[int(key)] = int(val)
-			txns[i] = txn
-		}
-		txnStoreMu.Unlock()
-
-		return node.Reply(msg, map[string]interface{}{"type": "txn_ok", "txn": txns})
 	})
 
 	if err := node.Run(); err != nil {

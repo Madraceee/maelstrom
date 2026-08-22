@@ -47,11 +47,12 @@ func (b *broadcasterOptions) Send(dst string, msgType string, values ...any) {
 			waitTime := 100
 			contextTime := 100
 			for {
-				ctx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*time.Duration(contextTime))
+				time.Sleep(time.Millisecond * time.Duration(waitTime*pow(2, count)))
 				b.mu.RLock()
 				values := b.dstConnMap[dst]
 				b.mu.RUnlock()
-				_, err := b.node.SyncRPC(ctx, dst, map[string]interface{}{"type": msgType, "message": values})
+				ctx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*time.Duration(contextTime))
+				_, err := b.node.SyncRPC(ctx, dst, getMessage(msgType, values))
 				cancel()
 
 				if maelstrom.ErrorCode(err) == maelstrom.Timeout || errors.Is(err, context.DeadlineExceeded) {
@@ -67,13 +68,20 @@ func (b *broadcasterOptions) Send(dst string, msgType string, values ...any) {
 				}
 				b.mu.Unlock()
 				if remaining > 0 {
-					time.Sleep(time.Millisecond * time.Duration(waitTime*pow(2, count)))
+					waitTime = 0
 					continue
 				}
 				return
 			}
 		}()
 	}
+}
+
+func getMessage(msgType string, values any) map[string]any {
+	if msgType == "txn-update" {
+		return map[string]any{"type": msgType, "txn": values}
+	}
+	return map[string]any{"type": msgType, "message": values}
 }
 
 func pow(x, y int) int {
