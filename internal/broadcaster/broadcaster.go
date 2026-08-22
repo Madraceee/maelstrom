@@ -1,4 +1,4 @@
-package main
+package broadcaster
 
 import (
 	"context"
@@ -10,25 +10,28 @@ import (
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-type broadcaster struct {
+type Broadcaster interface {
+	Send(dst string, values ...int)
+	SendTxn(dst string, values ...any)
+}
+
+type broadcasterOptions struct {
 	mu         *sync.RWMutex
 	dstConnMap map[string][]any
 	isWorking  map[string]bool
 	node       *maelstrom.Node
-	store      *store
 }
 
-func NewBroadcaster(node *maelstrom.Node, store *store) *broadcaster {
-	return &broadcaster{
+func NewBroadcaster(node *maelstrom.Node) Broadcaster {
+	return &broadcasterOptions{
 		mu:         &sync.RWMutex{},
 		dstConnMap: make(map[string][]any),
 		isWorking:  make(map[string]bool),
 		node:       node,
-		store:      store,
 	}
 }
 
-func (b *broadcaster) Send(dst string, values ...int) {
+func (b *broadcasterOptions) Send(dst string, values ...int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.dstConnMap[dst]; !ok {
@@ -46,10 +49,10 @@ func (b *broadcaster) Send(dst string, values ...int) {
 		b.isWorking[dst] = true
 		go func() {
 			count := 0
-			waitTime := 500
+			waitTime := 100
+			contextTime := 500
 			for {
 				time.Sleep(time.Millisecond * time.Duration(waitTime*pow(2, count)))
-				contextTime := 1000
 				b.mu.RLock()
 				values := b.dstConnMap[dst]
 				b.mu.RUnlock()
@@ -72,7 +75,7 @@ func (b *broadcaster) Send(dst string, values ...int) {
 	}
 }
 
-func (b *broadcaster) SendTxn(dst string, values ...any) {
+func (b *broadcasterOptions) SendTxn(dst string, values ...any) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.dstConnMap[dst]; !ok {
