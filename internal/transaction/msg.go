@@ -1,4 +1,4 @@
-package availability
+package transaction
 
 type input struct {
 	Txns []any `json:"txn"`
