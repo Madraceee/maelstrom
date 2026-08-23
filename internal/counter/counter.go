@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
@@ -62,7 +61,7 @@ func (c *counterOptions) read(msg maelstrom.Message) error {
 		msg, err := c.node.SyncRPC(ctx, id, simpleOutput{Type: "get_counter"})
 		cancel()
 		if err != nil {
-			log.Printf("node %s not working", id)
+			fmt.Printf("node %s not working\n", id)
 			continue
 		}
 
