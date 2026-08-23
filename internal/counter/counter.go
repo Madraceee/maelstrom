@@ -9,44 +9,51 @@ import (
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-type counterOptions struct {
+type config struct {
 	node *maelstrom.Node
 	kv   *maelstrom.KV
 }
 
-func NewCounterOptiosn(node *maelstrom.Node) *counterOptions {
-	return &counterOptions{
+func newConfig(node *maelstrom.Node) *config {
+	return &config{
 		node: node,
 		kv:   maelstrom.NewSeqKV(node),
 	}
 }
 
 func Handle(node *maelstrom.Node) {
-	opt := NewCounterOptiosn(node)
+	opt := newConfig(node)
 	node.Handle("add", opt.add)
 	node.Handle("read", opt.read)
 	node.Handle("get_counter", opt.getCounter)
 }
 
-func (c *counterOptions) add(msg maelstrom.Message) error {
+func (c *config) add(msg maelstrom.Message) error {
 	body := input{}
 
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return fmt.Errorf("Send: Error while decoding json: %s", err)
 	}
 
-	oldVal, err := c.kv.ReadInt(context.TODO(), c.node.ID())
-	if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
-		oldVal = 0
+	for {
+		oldVal, err := c.kv.ReadInt(context.TODO(), c.node.ID())
+		if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
+			if err := c.kv.CompareAndSwap(context.TODO(), c.node.ID(), oldVal, body.Delta, true); err != nil {
+				continue
+			}
+		} else {
+			newVal := oldVal + int(body.Delta)
+			if err := c.kv.CompareAndSwap(context.TODO(), c.node.ID(), oldVal, newVal, false); err != nil {
+				continue
+			}
+		}
+		break
 	}
-
-	newVal := oldVal + int(body.Delta)
-	c.kv.Write(context.TODO(), c.node.ID(), newVal)
 
 	return c.node.Reply(msg, simpleOutput{Type: "add_ok"})
 }
 
-func (c *counterOptions) read(msg maelstrom.Message) error {
+func (c *config) read(msg maelstrom.Message) error {
 	sum, err := c.kv.ReadInt(context.TODO(), c.node.ID())
 	if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
 		sum = 0
@@ -57,11 +64,10 @@ func (c *counterOptions) read(msg maelstrom.Message) error {
 			continue
 		}
 
-		ctx , cancel := context.WithTimeout(context.TODO(), time.Millisecond * 100 )
+		ctx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*100)
 		msg, err := c.node.SyncRPC(ctx, id, simpleOutput{Type: "get_counter"})
 		cancel()
 		if err != nil {
-			fmt.Printf("node %s not working\n", id)
 			continue
 		}
 
@@ -75,7 +81,7 @@ func (c *counterOptions) read(msg maelstrom.Message) error {
 	return c.node.Reply(msg, output{Type: "read_ok", Value: sum})
 }
 
-func (c *counterOptions) getCounter(msg maelstrom.Message) error {
+func (c *config) getCounter(msg maelstrom.Message) error {
 	val, err := c.kv.ReadInt(context.TODO(), c.node.ID())
 	if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
 		val = 0

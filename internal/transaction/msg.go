@@ -6,7 +6,7 @@ type input struct {
 
 type output struct {
 	Type string `json:"type"`
-	Txn []any `json:"txn"`
+	Txn  []any  `json:"txn"`
 }
 
 type errorMsg struct {

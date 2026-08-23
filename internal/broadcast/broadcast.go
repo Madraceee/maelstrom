@@ -4,20 +4,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"maelstrom/internal/broadcaster"
+	"sync"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-type broadcastOptions struct {
+type config struct {
 	node        *maelstrom.Node
+	mu          *sync.Mutex
 	topology    map[string][]string
 	broadcaster broadcaster.Broadcaster
 	store       *store
 }
 
-func newBroadCastOptions(node *maelstrom.Node, broadcaster broadcaster.Broadcaster, store *store) *broadcastOptions {
-	return &broadcastOptions{
+func newConfig(node *maelstrom.Node, broadcaster broadcaster.Broadcaster, store *store) *config {
+	return &config{
 		node:        node,
+		mu:          &sync.Mutex{},
 		topology:    make(map[string][]string),
 		broadcaster: broadcaster,
 		store:       store,
@@ -26,64 +29,77 @@ func newBroadCastOptions(node *maelstrom.Node, broadcaster broadcaster.Broadcast
 
 func Handle(node *maelstrom.Node, broadcaster broadcaster.Broadcaster) {
 	store := NewStore()
-	bopt := newBroadCastOptions(node, broadcaster, store)
+	bopt := newConfig(node, broadcaster, store)
 	node.Handle("broadcast", bopt.broadcast)
 	node.Handle("topology", bopt.SetTopology)
 	node.Handle("read", bopt.read)
 	node.Handle("broadcast-group", bopt.broadcastGroup)
 }
 
-func (b *broadcastOptions) broadcast(msg maelstrom.Message) error {
+func (c *config) broadcast(msg maelstrom.Message) error {
 	body := broadcastMsg{}
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return fmt.Errorf("BROADCAST: Error while decoding json: %s", err)
 	}
 
-	b.store.Store(body.Message)
-	nodeId := b.node.ID()
-	for _, connctedNode := range b.topology[nodeId] {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.store.Store(body.Message)
+	nodeId := c.node.ID()
+	for _, connctedNode := range c.topology[nodeId] {
 		if connctedNode == msg.Src || connctedNode == nodeId {
 			continue
 		}
-		b.broadcaster.Send(connctedNode, "broadcast-group", body.Message)
+		c.broadcaster.Send(connctedNode, "broadcast-group", body.Message)
 	}
-	return b.node.Reply(msg, reply{Type: "broadcast_ok"})
+	return c.node.Reply(msg, reply{Type: "broadcast_ok"})
 }
 
-func (b *broadcastOptions) SetTopology(msg maelstrom.Message) error {
+func (c *config) SetTopology(msg maelstrom.Message) error {
 	body := topologyMsg{}
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return fmt.Errorf("TOPOLOGY: Error while decoding json: %s", err)
 	}
 
-	b.topology = body.Topology
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.topology = body.Topology
 
-	return b.node.Reply(msg, reply{Type: "topology_ok"})
+	return c.node.Reply(msg, reply{Type: "topology_ok"})
 }
 
-func (b *broadcastOptions) read(msg maelstrom.Message) error {
-	return b.node.Reply(msg, reply{Type: "read_ok", Messages: b.store.Get()})
+func (c *config) read(msg maelstrom.Message) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.node.Reply(msg, reply{Type: "read_ok", Messages: c.store.Get()})
 }
 
-func (b *broadcastOptions) broadcastGroup(msg maelstrom.Message) error {
+func (c *config) broadcastGroup(msg maelstrom.Message) error {
 	body := broadcastGrpMsg{}
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return fmt.Errorf("BROADCAST: Error while decoding json: %s", err)
 	}
 
-	body.Message = b.store.StoreMultiple(body.Message)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	body.Message = c.store.StoreMultiple(body.Message)
 	messages := make([]any, len(body.Message))
-	for i, msg := range body.Message{
+	for i, msg := range body.Message {
 		messages[i] = msg
 	}
 
+	if len(body.Message) == 0 {
+		return c.node.Reply(msg, reply{Type: "broadcast_ok"})
+	}
 
-	nodeId := b.node.ID()
-	for _, connctedNode := range b.topology[nodeId] {
-		if connctedNode == msg.Src {
+	nodeId := c.node.ID()
+	for _, connectedNode := range c.topology[nodeId] {
+		if connectedNode == msg.Src {
 			continue
 		}
-		b.broadcaster.Send(connctedNode, "broadcast-group", messages...)
+		c.broadcaster.Send(connectedNode, "broadcast-group", messages...)
 	}
-	return b.node.Reply(msg, reply{Type: "boradcast_ok"})
+	return c.node.Reply(msg, reply{Type: "broadcast_ok"})
 }

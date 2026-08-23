@@ -1,4 +1,4 @@
-package transaction 
+package transaction
 
 import (
 	"encoding/json"
@@ -35,16 +35,17 @@ func Handle(node *maelstrom.Node, broadcaster broadcaster.Broadcaster) {
 }
 
 func (c *config) txn(msg maelstrom.Message) error {
-	body := input{} 
+	body := input{}
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return fmt.Errorf("TXN: Error while decoding json: %s", err)
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.isLocked == true {
 		return c.node.Reply(msg, newError(maelstrom.TxnConflict))
 	}
 
-	c.mu.Lock()
 	c.isLocked = true
 	writtenTxns := make([]any, 0)
 
@@ -75,18 +76,18 @@ func (c *config) txn(msg maelstrom.Message) error {
 		c.broadcaster.Send(id, "txn-update", writtenTxns...)
 	}
 	c.isLocked = false
-	c.mu.Unlock()
 
 	return c.node.Reply(msg, output{Type: "txn_ok", Txn: body.Txns})
 }
 
 func (c *config) txnUpdate(msg maelstrom.Message) error {
-	body := input{} 
+	body := input{}
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return fmt.Errorf("TXN: Error while decoding json: %s", err)
 	}
 
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	for i, t := range body.Txns {
 		txn := t.([]any)
 		op := txn[0].(string)
@@ -98,7 +99,6 @@ func (c *config) txnUpdate(msg maelstrom.Message) error {
 		c.store[int(key)] = int(val)
 		body.Txns[i] = txn
 	}
-	c.mu.Unlock()
 
 	return c.node.Reply(msg, output{Type: "txn_ok", Txn: body.Txns})
 }

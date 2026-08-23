@@ -44,26 +44,32 @@ func (c *config) send(msg maelstrom.Message) error {
 		return fmt.Errorf("Send: Error while decoding json: %s", err)
 	}
 
-	offset := 1000
-	for {
-		offset = 1000
+	offset := 0
+	retry := 0
+	for retry < 10 {
+		offset = 0
 		response := make(map[int]int)
 		err := c.linKv.ReadInto(context.TODO(), body.Key, &response)
 		if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
 			response[offset] = body.Msg
 			if err := c.linKv.CompareAndSwap(context.TODO(), body.Key, response, response, true); err != nil {
+				retry++
 				continue
 			}
 		} else {
-			offset = offset + len(response) + 1
+			offset = offset + len(response)
 			newReponse := maps.Clone(response)
 
 			newReponse[offset] = body.Msg
 			if err := c.linKv.CompareAndSwap(context.TODO(), body.Key, response, newReponse, false); err != nil {
+				retry++
 				continue
 			}
 		}
 		break
+	}
+	if retry >= 10 {
+		return fmt.Errorf("Send: could not set value")
 	}
 
 	return c.node.Reply(msg, sendOutput{Type: "send_ok", Offset: offset})
@@ -114,6 +120,7 @@ func (c *config) commitOffsets(msg maelstrom.Message) error {
 			} else if err != nil {
 				return fmt.Errorf("commit_offsets: Could not fetch key %s details: %s", key, err)
 			} else {
+				offset = max(val, offset)
 				if err := c.seqKv.CompareAndSwap(context.TODO(), key+"Commit", val, offset, false); err != nil {
 					continue
 				}
