@@ -45,7 +45,7 @@ func (b *broadcasterOptions) Send(dst string, msgType string, values ...any) {
 		go func() {
 			count := 0
 			waitTime := 100
-			contextTime := 100
+			contextTime := 500
 			for {
 				time.Sleep(time.Millisecond * time.Duration(waitTime*pow(2, count)))
 				b.mu.RLock()
@@ -77,7 +77,7 @@ func (b *broadcasterOptions) Send(dst string, msgType string, values ...any) {
 	}
 }
 
-func getMessage(msgType string, values any) map[string]any {
+func getMessage(msgType string, values []any) map[string]any {
 	if msgType == "txn-update" {
 		return map[string]any{"type": msgType, "txn": values}
 	}

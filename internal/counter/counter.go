@@ -65,14 +65,14 @@ func (c *config) read(msg maelstrom.Message) error {
 		}
 
 		ctx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*100)
-		msg, err := c.node.SyncRPC(ctx, id, simpleOutput{Type: "get_counter"})
+		recvMsg, err := c.node.SyncRPC(ctx, id, simpleOutput{Type: "get_counter"})
 		cancel()
 		if err != nil {
 			continue
 		}
 
 		body := output{}
-		if err := json.Unmarshal(msg.Body, &body); err != nil {
+		if err := json.Unmarshal(recvMsg.Body, &body); err != nil {
 			return fmt.Errorf("Add: Error while decoding json: %s", err)
 		}
 

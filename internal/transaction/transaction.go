@@ -12,7 +12,7 @@ type config struct {
 	node        *maelstrom.Node
 	broadcaster broadcaster.Broadcaster
 
-	store    map[int]int
+	store map[int]int
 
 	inputChan chan inputChanMsg
 }
@@ -84,7 +84,7 @@ func (c *config) processTxn() {
 			}
 			txns.Txns[i] = txn
 		}
-		if txns.shouldBroadcast {
+		if txns.shouldBroadcast && len(writtenTxns) > 0 {
 			for _, id := range c.node.NodeIDs() {
 				if id == c.node.ID() || id == txns.src {
 					continue

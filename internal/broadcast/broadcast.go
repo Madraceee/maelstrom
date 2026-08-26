@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"maelstrom/internal/broadcaster"
-	"sync"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
 type config struct {
 	node        *maelstrom.Node
-	mu          *sync.Mutex
 	topology    map[string][]string
 	broadcaster broadcaster.Broadcaster
 	store       *store
@@ -20,7 +18,6 @@ type config struct {
 func newConfig(node *maelstrom.Node, broadcaster broadcaster.Broadcaster, store *store) *config {
 	return &config{
 		node:        node,
-		mu:          &sync.Mutex{},
 		topology:    make(map[string][]string),
 		broadcaster: broadcaster,
 		store:       store,
@@ -42,9 +39,6 @@ func (c *config) broadcast(msg maelstrom.Message) error {
 		return fmt.Errorf("BROADCAST: Error while decoding json: %s", err)
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.store.Store(body.Message)
 	nodeId := c.node.ID()
 	for _, connctedNode := range c.topology[nodeId] {
@@ -62,16 +56,12 @@ func (c *config) SetTopology(msg maelstrom.Message) error {
 		return fmt.Errorf("TOPOLOGY: Error while decoding json: %s", err)
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.topology = body.Topology
 
 	return c.node.Reply(msg, reply{Type: "topology_ok"})
 }
 
 func (c *config) read(msg maelstrom.Message) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	return c.node.Reply(msg, reply{Type: "read_ok", Messages: c.store.Get()})
 }
 
@@ -81,16 +71,13 @@ func (c *config) broadcastGroup(msg maelstrom.Message) error {
 		return fmt.Errorf("BROADCAST: Error while decoding json: %s", err)
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	body.Message = c.store.StoreMultiple(body.Message)
 	messages := make([]any, len(body.Message))
 	for i, msg := range body.Message {
 		messages[i] = msg
 	}
 
-	if len(body.Message) == 0 {
+	if len(messages) == 0 {
 		return c.node.Reply(msg, reply{Type: "broadcast_ok"})
 	}
 
