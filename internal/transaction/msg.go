@@ -9,6 +9,13 @@ type output struct {
 	Txn  []any  `json:"txn"`
 }
 
+type inputChanMsg struct {
+	input
+	shouldBroadcast bool
+	src string
+	ch chan []any 
+}
+
 type errorMsg struct {
 	Type string `json:"type"`
 	Code int    `json:"code"`
