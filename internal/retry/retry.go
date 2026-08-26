@@ -1,4 +1,4 @@
-package broadcaster
+package retry
 
 import (
 	"context"
@@ -10,19 +10,19 @@ import (
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-type Broadcaster interface {
+type RetryHandler interface {
 	Send(dst string, msgType string, values ...any)
 }
 
-type broadcasterOptions struct {
+type RetryCfg struct {
 	mu         *sync.RWMutex
 	dstConnMap map[string][]any
 	isWorking  map[string]bool
 	node       *maelstrom.Node
 }
 
-func NewBroadcaster(node *maelstrom.Node) Broadcaster {
-	return &broadcasterOptions{
+func NewRetryHandler(node *maelstrom.Node) RetryHandler {
+	return &RetryCfg{
 		mu:         &sync.RWMutex{},
 		dstConnMap: make(map[string][]any),
 		isWorking:  make(map[string]bool),
@@ -30,7 +30,7 @@ func NewBroadcaster(node *maelstrom.Node) Broadcaster {
 	}
 }
 
-func (b *broadcasterOptions) Send(dst string, msgType string, values ...any) {
+func (b *RetryCfg) Send(dst string, msgType string, values ...any) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.dstConnMap[dst]; !ok {

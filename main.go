@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 	"maelstrom/internal/broadcast"
-	"maelstrom/internal/broadcaster"
+	"maelstrom/internal/retry"
 	_ "maelstrom/internal/counter"
 	"maelstrom/internal/echo"
 	"maelstrom/internal/generate"
@@ -16,13 +16,13 @@ import (
 func main() {
 	node := maelstrom.NewNode()
 
-	broadcaster := broadcaster.NewBroadcaster(node)
+	retryHandler := retry.NewRetryHandler(node)
 
 	echo.Handle(node)
 	generate.Handle(node)
-	broadcast.Handle(node, broadcaster)
+	broadcast.Handle(node, retryHandler)
 	// counter.Handle(node)
-	transaction.Handle(node, broadcaster)
+	transaction.Handle(node, retryHandler)
 	kafka.Handle(node)
 
 	if err := node.Run(); err != nil {

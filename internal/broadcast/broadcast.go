@@ -3,7 +3,7 @@ package broadcast
 import (
 	"encoding/json"
 	"fmt"
-	"maelstrom/internal/broadcaster"
+	"maelstrom/internal/retry"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
@@ -11,24 +11,24 @@ import (
 type config struct {
 	node        *maelstrom.Node
 	topology    map[string][]string
-	broadcaster broadcaster.Broadcaster
+	retryHandler retry.RetryHandler 
 	store       *store
 }
 
-func newConfig(node *maelstrom.Node, broadcaster broadcaster.Broadcaster, store *store) *config {
+func newConfig(node *maelstrom.Node, retryHandler retry.RetryHandler, store *store) *config {
 	return &config{
 		node:        node,
 		topology:    make(map[string][]string),
-		broadcaster: broadcaster,
+		retryHandler: retryHandler,
 		store:       store,
 	}
 }
 
-func Handle(node *maelstrom.Node, broadcaster broadcaster.Broadcaster) {
+func Handle(node *maelstrom.Node, retryHandler retry.RetryHandler) {
 	store := NewStore()
-	bopt := newConfig(node, broadcaster, store)
+	bopt := newConfig(node, retryHandler, store)
 	node.Handle("broadcast", bopt.broadcast)
-	node.Handle("topology", bopt.SetTopology)
+	node.Handle("topology", bopt.setTopology)
 	node.Handle("read", bopt.read)
 	node.Handle("broadcast-group", bopt.broadcastGroup)
 }
@@ -45,12 +45,12 @@ func (c *config) broadcast(msg maelstrom.Message) error {
 		if connctedNode == msg.Src || connctedNode == nodeId {
 			continue
 		}
-		c.broadcaster.Send(connctedNode, "broadcast-group", body.Message)
+		c.retryHandler.Send(connctedNode, "broadcast-group", body.Message)
 	}
 	return c.node.Reply(msg, reply{Type: "broadcast_ok"})
 }
 
-func (c *config) SetTopology(msg maelstrom.Message) error {
+func (c *config) setTopology(msg maelstrom.Message) error {
 	body := topologyMsg{}
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return fmt.Errorf("TOPOLOGY: Error while decoding json: %s", err)
@@ -86,7 +86,7 @@ func (c *config) broadcastGroup(msg maelstrom.Message) error {
 		if connectedNode == msg.Src {
 			continue
 		}
-		c.broadcaster.Send(connectedNode, "broadcast-group", messages...)
+		c.retryHandler.Send(connectedNode, "broadcast-group", messages...)
 	}
 	return c.node.Reply(msg, reply{Type: "broadcast_ok"})
 }

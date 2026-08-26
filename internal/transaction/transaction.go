@@ -3,34 +3,34 @@ package transaction
 import (
 	"encoding/json"
 	"fmt"
-	"maelstrom/internal/broadcaster"
+	"maelstrom/internal/retry"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
 type config struct {
-	node        *maelstrom.Node
-	broadcaster broadcaster.Broadcaster
+	node         *maelstrom.Node
+	retryHandler retry.RetryHandler
 
 	store map[int]int
 
 	inputChan chan inputChanMsg
 }
 
-func newConfig(node *maelstrom.Node, broadcaster broadcaster.Broadcaster) *config {
+func newConfig(node *maelstrom.Node, retryHandler retry.RetryHandler) *config {
 	inputChan := make(chan inputChanMsg)
 	config := &config{
-		node:        node,
-		broadcaster: broadcaster,
-		store:       make(map[int]int),
-		inputChan:   inputChan,
+		node:         node,
+		retryHandler: retryHandler,
+		store:        make(map[int]int),
+		inputChan:    inputChan,
 	}
 	go config.processTxn()
 	return config
 }
 
-func Handle(node *maelstrom.Node, broadcaster broadcaster.Broadcaster) {
-	config := newConfig(node, broadcaster)
+func Handle(node *maelstrom.Node, retryHandler retry.RetryHandler) {
+	config := newConfig(node, retryHandler)
 	node.Handle("txn", config.txnNew)
 	node.Handle("txn-update", config.txnUpdateNew)
 }
@@ -90,7 +90,7 @@ func (c *config) processTxn() {
 					continue
 				}
 
-				c.broadcaster.Send(id, "txn-update", writtenTxns...)
+				c.retryHandler.Send(id, "txn-update", writtenTxns...)
 			}
 		}
 		txns.ch <- txns.Txns
