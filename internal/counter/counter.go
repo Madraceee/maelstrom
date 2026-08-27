@@ -32,7 +32,7 @@ func (c *config) add(msg maelstrom.Message) error {
 	body := input{}
 
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
-		return fmt.Errorf("Send: Error while decoding json: %s", err)
+		return fmt.Errorf("Add: Error while decoding json: %s", err)
 	}
 
 	for {
@@ -68,7 +68,7 @@ func (c *config) read(msg maelstrom.Message) error {
 
 		body := output{}
 		if err := json.Unmarshal(recvMsg.Body, &body); err != nil {
-			return fmt.Errorf("Add: Error while decoding json: %s", err)
+			return fmt.Errorf("Read: Error while decoding json: %s", err)
 		}
 
 		sum += int(body.Value)

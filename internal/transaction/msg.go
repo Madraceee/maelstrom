@@ -6,14 +6,21 @@ type input struct {
 
 type output struct {
 	Type string `json:"type"`
-	Txn  []any  `json:"txn"`
+	Txn  []any  `json:"txn,omitempty"`
+	Code int    `json:"code,omitzero"`
+	Text string `json:"text,omitzero"`
 }
 
 type inputChanMsg struct {
 	input
 	shouldBroadcast bool
-	src string
-	ch chan []any 
+	src             string
+	ch              chan outputChanMsg
+}
+
+type outputChanMsg struct {
+	txns []any
+	err  error
 }
 
 type errorMsg struct {
