@@ -37,15 +37,10 @@ func (c *config) add(msg maelstrom.Message) error {
 
 	for {
 		oldVal, err := c.kv.ReadInt(context.TODO(), c.node.ID())
-		if maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist {
-			if err := c.kv.CompareAndSwap(context.TODO(), c.node.ID(), oldVal, body.Delta, true); err != nil {
-				continue
-			}
-		} else {
-			newVal := oldVal + int(body.Delta)
-			if err := c.kv.CompareAndSwap(context.TODO(), c.node.ID(), oldVal, newVal, false); err != nil {
-				continue
-			}
+		newVal := oldVal + int(body.Delta)
+		isNewKey := maelstrom.ErrorCode(err) == maelstrom.KeyDoesNotExist
+		if err := c.kv.CompareAndSwap(context.TODO(), c.node.ID(), oldVal, newVal, isNewKey); err != nil {
+			continue
 		}
 		break
 	}
@@ -64,7 +59,7 @@ func (c *config) read(msg maelstrom.Message) error {
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*100)
+		ctx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*200)
 		recvMsg, err := c.node.SyncRPC(ctx, id, simpleOutput{Type: "get_counter"})
 		cancel()
 		if err != nil {
