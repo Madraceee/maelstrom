@@ -41,11 +41,11 @@ func (c *config) broadcast(msg maelstrom.Message) error {
 
 	c.store.Store(body.Message)
 	nodeId := c.node.ID()
-	for _, connctedNode := range c.topology[nodeId] {
-		if connctedNode == msg.Src || connctedNode == nodeId {
+	for _, connectedNode := range c.topology[nodeId] {
+		if connectedNode == msg.Src || connectedNode == nodeId {
 			continue
 		}
-		c.retryHandler.Send(connctedNode, "broadcast-group", body.Message)
+		c.retryHandler.Send(connectedNode, "broadcast-group", body.Message)
 	}
 	return c.node.Reply(msg, reply{Type: "broadcast_ok"})
 }

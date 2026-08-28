@@ -3,11 +3,11 @@ package main
 import (
 	"log"
 	_ "maelstrom/internal/broadcast"
-	"maelstrom/internal/retry"
 	"maelstrom/internal/counter"
 	"maelstrom/internal/echo"
 	"maelstrom/internal/generate"
 	"maelstrom/internal/kafka"
+	"maelstrom/internal/retry"
 	"maelstrom/internal/transaction"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
@@ -16,13 +16,18 @@ import (
 func main() {
 	node := maelstrom.NewNode()
 
-	retryHandler := retry.NewRetryHandler(node)
 
 	echo.Handle(node)
 	generate.Handle(node)
-	// broadcast.Handle(node, retryHandler)
+	//NOTE: Either run broadcast or counter due to handler conflict
+	// broadcastRetryHandler := retry.NewRetryHandler(node)
+	// broadcast.Handle(node, broadcastRetryHandler)
+
 	counter.Handle(node)
-	transaction.Handle(node, retryHandler)
+
+	txnRetryHandler := retry.NewRetryHandler(node)
+	transaction.Handle(node, txnRetryHandler)
+
 	kafka.Handle(node)
 
 	if err := node.Run(); err != nil {

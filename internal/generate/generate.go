@@ -12,7 +12,7 @@ import (
 const (
 	epoch          = int64(1672531200000)
 	seqBits        = int64(12)
-	machineIdBits      = int64(10)
+	machineIdBits  = int64(10)
 	maxSeqBits     = int64(-1) ^ (int64(-1) << seqBits)
 	maxMachineBits = int64(-1) ^ (int64(-1) << machineIdBits)
 	machineIdShift = seqBits
@@ -40,8 +40,8 @@ func Handle(node *maelstrom.Node) {
 
 func (g *generator) generate(m maelstrom.Message, node *maelstrom.Node) any {
 	return map[string]interface{}{
-		"type": "generate_ok", 
-		"id": strconv.FormatInt(g.GetID(node.ID()),10),
+		"type": "generate_ok",
+		"id":   strconv.FormatInt(g.GetID(node.ID()), 10),
 	}
 }
 
